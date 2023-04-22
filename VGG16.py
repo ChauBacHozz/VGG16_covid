@@ -165,7 +165,59 @@ def pool_de_3d(dP, P, C, pool_size, pool_de):
     for i in range(P.shape[0]):
         res.append(pool_de(dP[i], P[i], C[i], pool_size))
     return np.array(res)
+class BatchNorm:
+    def __init__(self, epsilon=1e-7):
+        self.epsilon = epsilon
+        self.gamma = None
+        self.beta = None
+        self.running_mean = None
+        self.running_var = None
+        self.batch_size = None
+        self.x_centered = None
+        self.x_normalized = None
+    
+    def compile(self, input_shape):
+        self.batch_size = input_shape[0]
+        self.gamma = np.ones(input_shape[1:])
+        self.beta = np.zeros(input_shape[1:])
+    def forward(self, x, training=True):
+        self.batch_size = x.shape[0]
+        
+        if training:
+            self.running_mean = np.mean(x, axis=0)
+            self.running_var = np.var(x, axis=0)
+            
+            self.x_centered = x - self.running_mean
+            self.x_normalized = self.x_centered / np.sqrt(self.running_var + self.epsilon)
+            
+            out = self.gamma * self.x_normalized + self.beta
+            
+        else:
+            x_centered = x - self.running_mean
+            x_normalized = x_centered / np.sqrt(self.running_var + self.epsilon)
+            out = self.gamma * x_normalized + self.beta
+            
+        return out
+    
+    def backward(self, dy):
+        dgamma = np.sum(dy * self.x_normalized, axis=0)
+        dbeta = np.sum(dy, axis=0)
+        dx_normalized = dy * self.gamma
+        
+        dvar = np.sum(dx_normalized * self.x_centered, axis=0) * (-0.5) * ((self.running_var + self.epsilon) ** (-3/2))
+        dmean = np.sum(dx_normalized * (-1) / np.sqrt(self.running_var + self.epsilon), axis=0) + dvar * np.mean(-2 * self.x_centered, axis=0)
+        dx = dx_normalized / np.sqrt(self.running_var + self.epsilon) + dvar * 2 * self.x_centered / self.batch_size + dmean / self.batch_size
+        
+        self.dgamma = dgamma
+        self.dbeta = dbeta
+        
+        return dx
 
+    def update(self, learning_rate = 0.9):
+        # Update gamma and beta
+        self.gamma -= learning_rate * self.dgamma
+        self.beta -= learning_rate * self.dbeta
+        
 class Conv_layer:
     def __init__(self, kernel_size, n_kernels):
         self.n_kernels = n_kernels
@@ -324,11 +376,11 @@ class CNN:
         for layer in self.layers[1:]:
             if layer.__class__.__name__ == "Pool_layer":
                 flc_input_dim *= layer.pool_size
-                # self.input_shape[2] //= flc_input_dim 
-                # self.input_shape[3] //= flc_input_dim
             if layer.__class__.__name__ == "Conv_layer":
                 layer.compile((self.input_shape[0], dim_3d, self.input_shape[2] // flc_input_dim,self.input_shape[3] // flc_input_dim))
                 dim_3d = layer.n_kernels
+            if layer.__class__.__name__ == "BatchNorm":
+                layer.compile((self.input_shape[0], dim_3d, self.input_shape[2] // flc_input_dim,self.input_shape[3] // flc_input_dim))
         self.layers[-1].compile((self.input_shape[2] // flc_input_dim) * (self.input_shape[3] // flc_input_dim) * dim_3d)
 
     def forward(self, input):
