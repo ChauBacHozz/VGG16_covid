@@ -332,8 +332,12 @@ class FullyConnected:
         self.dim_layers_ls.append(self.output_dim)
         for i in range (len(self.dim_layers_ls) - 1):
             self.layers.append(FcSub_Layer(row = self.dim_layers_ls[i], col=self.dim_layers_ls[i + 1], act_func=self.hiddenlayers_actfunc))
-        self.layers[-1].activationForward = Soft_Max
-        self.layers[-1].activationBackward = Soft_Max_de
+        if self.output_dim >= 2:
+            self.layers[-1].activationForward = Soft_Max
+            self.layers[-1].activationBackward = Soft_Max_de
+        else:
+            self.layers[-1].activationForward = Sigmoid
+            self.layers[-1].activationBackward = Sigmoid_de
     def forward(self, input):
         x = np.copy(input)
         for layer in self.layers:
